@@ -1,0 +1,61 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install build prereqs
+        run: |
+          brew install autoconf automake bash binutils cmake coreutils findutils \
+            gettext gnu-getopt libtool make meson nasm ninja pkgconf sdl3 \
+            util-linux xcodegen || true
+
+      - name: Put GNU tools first in PATH
+        run: |
+          P="$(brew --prefix)"
+          echo "$P/opt/findutils/libexec/gnubin" >> $GITHUB_PATH
+          echo "$P/opt/gnu-getopt/bin" >> $GITHUB_PATH
+          echo "$P/opt/make/libexec/gnubin" >> $GITHUB_PATH
+          echo "$P/opt/util-linux/bin" >> $GITHUB_PATH
+
+      - name: Build macOS base (host LuaJIT for bytecode precompile, optional)
+        continue-on-error: true
+        run: make TARGET=macos base
+
+      - name: Generate Xcode project
+        run: make TARGET=ios xcodeproj
+
+      - name: Build app (no code signing)
+        run: |
+          SCHEME=$(xcodebuild -list -json -project KOReader.xcodeproj | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
+          echo "Using scheme: $SCHEME"
+          xcodebuild -project KOReader.xcodeproj -scheme "$SCHEME" \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/dd/Build/Products -name "*.app" -path "*iphoneos*" -maxdepth 3 | head -n1)
+          echo "Found app: $APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry KOReader-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: KOReader-unsigned-ipa
+          path: KOReader-unsigned.ipa
