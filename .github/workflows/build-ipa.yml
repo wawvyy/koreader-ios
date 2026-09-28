@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 300
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
@@ -34,6 +34,12 @@ jobs:
 
       - name: Generate Xcode project
         run: make TARGET=ios xcodeproj
+
+      - name: Generate Info.plist (gitignored in the repo)
+        run: |
+          VERSION=$(git describe --tags 2>/dev/null || echo "2026.09")
+          sed "s|@VERSION@|${VERSION#v}|g" platform/ios/Info.plist.in > platform/ios/Info.plist
+          echo "Info.plist written with version ${VERSION#v}"
 
       - name: Build app (no code signing)
         run: |
