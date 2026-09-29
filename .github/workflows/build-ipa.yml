@@ -35,20 +35,22 @@ jobs:
       - name: Generate Xcode project
         run: make TARGET=ios xcodeproj
 
-      - name: Generate Info.plist (gitignored in the repo)
-        run: |
-          VERSION=$(git describe --tags 2>/dev/null || echo "2026.09")
-          sed "s|@VERSION@|${VERSION#v}|g" platform/ios/Info.plist.in > platform/ios/Info.plist
-          echo "Info.plist written with version ${VERSION#v}"
-
       - name: Build app (no code signing)
         run: |
           SCHEME=$(xcodebuild -list -json -project KOReader.xcodeproj | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
           echo "Using scheme: $SCHEME"
+          # Info.plist is gitignored upstream; generate it from the template
+          # outside the source tree and point Xcode at it directly.
+          VERSION=$(git describe --tags 2>/dev/null || echo "2026.09")
+          mkdir -p "$PWD/build"
+          sed "s|@VERSION@|${VERSION#v}|g" platform/ios/Info.plist.in > "$PWD/build/Info.plist"
+          cp "$PWD/build/Info.plist" platform/ios/Info.plist
+          echo "--- Info.plist check ---"; ls -l "$PWD/build/Info.plist" platform/ios/Info.plist
           xcodebuild -project KOReader.xcodeproj -scheme "$SCHEME" \
             -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/dd \
+            INFOPLIST_FILE="$PWD/build/Info.plist" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build
 
